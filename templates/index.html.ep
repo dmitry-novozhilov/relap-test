@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+	<head><title>Какие сервисы статистики используют top 50 сайтов РФ</title></head>
+	<body>
+		<h1>Сервис статистики top 50 сайтов в РФ</h1>
+		<div style="display: flex">
+			% foreach my $group (@$groups) {
+				<div style="margin: 0 15px;">
+					<h2><%= $group->{name} %></h2>
+					<ul>
+						% foreach my $site (@{ $group->{sites} }) {
+							<li><%= $site %></li>
+						% }
+					</ul>
+				</div>
+			% }
+		</div>
+		<div style="float:right"><%= $ctime %></div>
+	</body>
+</html>
+
