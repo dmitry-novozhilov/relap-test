@@ -1,2 +1,4 @@
- ext_pages_cache/*
- 
+ext_pages_cache/*
+local
+.idea
+*.iml 

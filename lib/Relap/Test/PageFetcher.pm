@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use v5.26;
 use utf8;
+# state можно не импортировать, если используется прагма `use v`;
 use feature qw(signatures state);
 use MIME::Base64 qw(encode_base64url);
 
@@ -23,6 +24,7 @@ has _page_ctime => (
 	default	=> sub {{}},
 );
 
+#@returns Mojo::File
 has _cache_dir => (
 	is		=> 'ro',
 	default	=> sub {Mojo::Home->new->detect('Relap::Test')->child('ext_pages_cache')->make_path({mode => 0700})},
@@ -41,8 +43,8 @@ sub do($self, $url, $max_age = undef) {
 		return Mojo::Promise->new->resolve($self->_pages->{$url}, $url, $self->_page_ctime->{$url});
 	}
 	
-	my $file = $self->_cache_dir->child(encode_base64url($url));
-	my $stat = $file->stat();
+	my Mojo::File $file = $self->_cache_dir->child(encode_base64url($url));
+	my File::stat $stat = $file->stat();
 	
 	if($stat and (! defined $max_age or time - $stat->mtime < $max_age)) {
 		my $handle = $file->open('<');

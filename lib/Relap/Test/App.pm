@@ -42,11 +42,17 @@ sub _fetch_data($do_refresh = 0) {
 	}
 	
 	my $new_ctime;
-	
+
+	# функции внутри then можно объявить отдельно, это немного упрощает их независимое тестирование
+	# return $page_fetcher->do(...)
+	# 	->then( \&_parse_similar_web_index )
+	# 	->then( \&_parse_sites_index)
+
 	return $page_fetcher->do(INDEX_PAGE_URL, $do_refresh ? 0 : undef)
 		->then(sub($html, $url, $ctime) {
 			die "Similarweb parsing error" if ! $html;
-			
+
+			# можно получить Mojo::Dom объект из tx: $tx->res->dom; и передавать его сюда сразу вместо $html
 			my $dom = Mojo::DOM->new($html);
 			
 			# HTML5::DOM так же может
@@ -60,7 +66,10 @@ sub _fetch_data($do_refresh = 0) {
 			$new_ctime = $ctime;
 			
 			my @sites;
-			foreach my $a ($table->find('tr > td.topRankingGrid-cell.topWebsitesGrid-cellWebsite.showInMobile > div > a.sprite.linkout.topRankingGrid-blankLink')->each) {
+
+			# есть правило, которое говорит нам, что не надо использовать $a и $b как имена переменных
+			# https://perlmaven.com/dont-use-a-and-b-variables
+			foreach my Mojo::DOM $a ($table->find('tr > td.topRankingGrid-cell.topWebsitesGrid-cellWebsite.showInMobile > div > a.sprite.linkout.topRankingGrid-blankLink')->each) {
 				push @sites, $a->attr('href');
 				last if @sites == NUM_OF_TOP_SITES;
 			}
@@ -69,20 +78,34 @@ sub _fetch_data($do_refresh = 0) {
 				$page_fetcher->invalid(INDEX_PAGE_URL);
 				die "Similarweb parsing error";
 			}
-			
+
+			# 50 одновременных соединений - это, пожалуй, чересчур много. В практических задачах лучше на один тред
+			# так много не вешать или для начала произвести какой-то бенчмарк.
 			my @promises;
 			foreach my $site (@sites) {
 				push @promises, $page_fetcher->do($site, $do_refresh ? 0 : undef);
 			}
+
+			# для этой задачи лучше использовать Mojo::Promise->all_settled, а не Mojo::Promise->all
+			# промис all будет rejected, если хотя бы один из дочерних промисов был rejected
+			# легко представить ситуацию, когда из 50 запущенных соединений одно затаймаутило и вот у нас нет
+			# никаких данных, даже с учётом того, что 49 запросов завершились успешно
+			#
+			# UPD:
+			# После того как я почитал код PageFetcher, вижу, что ты эту проблему обошел, перехватывая reject
+			# в catch ))
+			# но all_settled более прямой способ
 			return Mojo::Promise->all(@promises);
 		})
 		->then(sub(@results) {
 			my(@metrica, @analytics, @nothing, @unknown);
 			foreach my $result (@results) {
 				if($result->[0]) {
+
+					# nothing не используется дальше. Такие ошибки и недочеты, кстати, очень легко ловить в IDEA
 					my($metrica, $analytics, $nothing);
 					my $dom = Mojo::DOM->new($result->[0]);
-					foreach my $script ($dom->find('script')->each) {
+					foreach my Mojo::DOM $script ($dom->find('script')->each) {
 						if($script->attr('src')) {
 							$metrica = 1 if ! $metrica and $script->attr('src') =~ /^https?:\/\/mc\.yandex\.ru\//;
 							# Не это надо искать
@@ -96,6 +119,7 @@ sub _fetch_data($do_refresh = 0) {
 					push @analytics, $result->[1] if $analytics;
 					push @nothing, $result->[1] if ! $metrica and ! $analytics;
 				} else {
+					# я сомневаюсь, что код сюда попадет, а не в catch, если случится ошибка
 					push @unknown, $result->[1];
 				}
 			}
@@ -119,6 +143,11 @@ sub startup ($self) {
 	$self->routes->get('/' => sub($c) {
 		
 		_fetch_data()
+			# немного неожиданно писать catch раньше then. Вообще, лучше стараться не писать неожиданный код,
+			# если обстоятельства этого не требуют
+			# под неожиданным я понимаю вот что: если все примеры в документации сначала пишут then, а потом catch
+			# то лучше сохранить эту конвенцию, тем более, что это похоже на классический try/catch
+			# тут можно возразить, что лучше сначала написать что-то короткое и понятное, но
 			->catch(sub($err) {$c->reply->exception($err)})
 			->then(sub($results, $ctime) {
 				$c->render(
